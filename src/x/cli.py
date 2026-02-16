@@ -22,6 +22,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--from-file", type=pathlib.Path, help="Read tweet text from a file",
     )
     parser.add_argument(
+        "--reply-to",
+        type=str,
+        metavar="TWEET_ID",
+        help="Tweet ID to reply to (for threading)",
+    )
+    parser.add_argument(
         "--auth",
         action="store_true",
         help="Force re-authorization even if a token exists",
@@ -103,5 +109,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     client = XClient(access_token)
-    tweet_url = client.create_tweet(text)
-    print(f"Tweet published!\n{tweet_url}")
+    result = client.create_tweet(text, reply_to_tweet_id=args.reply_to)
+    print(f"Tweet published!\n{result.url}")
+    print(f"\nTo continue this thread:\n"
+          f"uv run x-post --reply-to {result.tweet_id} \"Next tweet text\"")

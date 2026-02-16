@@ -1,10 +1,19 @@
 """X API client for creating posts."""
 
+from dataclasses import dataclass
 from typing import Protocol
 
 import requests
 
 _BASE_URL = "https://api.x.com/2"
+
+
+@dataclass(frozen=True)
+class TweetResult:
+    """Result of publishing a tweet."""
+
+    tweet_id: str
+    url: str
 
 
 class XAPI(Protocol):
@@ -14,8 +23,10 @@ class XAPI(Protocol):
         """Return the authenticated user's username."""
         ...
 
-    def create_tweet(self, text: str) -> str:
-        """Publish a tweet and return its URL."""
+    def create_tweet(
+        self, text: str, *, reply_to_tweet_id: str | None = None,
+    ) -> TweetResult:
+        """Publish a tweet and return the result with ID and URL."""
         ...
 
 
@@ -43,16 +54,22 @@ class XClient:
             self._username = resp.json()["data"]["username"]
         return self._username
 
-    def create_tweet(self, text: str) -> str:
-        """Publish a tweet. Returns the tweet URL."""
-        resp = self._session.post(
-            f"{_BASE_URL}/tweets",
-            json={"text": text},
-        )
+    def create_tweet(
+        self, text: str, *, reply_to_tweet_id: str | None = None,
+    ) -> TweetResult:
+        """Publish a tweet, optionally as a reply. Returns tweet ID and URL."""
+        body: dict = {"text": text}
+        if reply_to_tweet_id is not None:
+            body["reply"] = {"in_reply_to_tweet_id": reply_to_tweet_id}
+
+        resp = self._session.post(f"{_BASE_URL}/tweets", json=body)
         if not resp.ok:
             raise requests.HTTPError(
                 f"{resp.status_code}: {resp.text}", response=resp,
             )
         tweet_id = resp.json()["data"]["id"]
         username = self.get_username()
-        return f"https://x.com/{username}/status/{tweet_id}"
+        return TweetResult(
+            tweet_id=tweet_id,
+            url=f"https://x.com/{username}/status/{tweet_id}",
+        )

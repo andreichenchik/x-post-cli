@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from x.cli import main
-from x.client import XClient
+from x.client import TweetResult, XClient
 
 
 @pytest.fixture
@@ -53,8 +53,26 @@ class TestCreateTweet:
 
             body = mock_post.call_args.kwargs["json"]
             assert body == {"text": "Hello!"}
+            assert "reply" not in body
 
-    def test_returns_tweet_url(self, client: XClient) -> None:
+    def test_sends_reply_body(self, client: XClient) -> None:
+        with (
+            patch.object(
+                client._session, "get",
+                return_value=_ok_response({"data": {"username": "bob"}}),
+            ),
+            patch.object(client._session, "post") as mock_post,
+        ):
+            mock_post.return_value = _tweet_response("999")
+            client.create_tweet("Reply!", reply_to_tweet_id="123")
+
+            body = mock_post.call_args.kwargs["json"]
+            assert body == {
+                "text": "Reply!",
+                "reply": {"in_reply_to_tweet_id": "123"},
+            }
+
+    def test_returns_tweet_result(self, client: XClient) -> None:
         with (
             patch.object(
                 client._session, "get",
@@ -63,8 +81,10 @@ class TestCreateTweet:
             patch.object(client._session, "post") as mock_post,
         ):
             mock_post.return_value = _tweet_response("789")
-            url = client.create_tweet("test")
-            assert url == "https://x.com/bob/status/789"
+            result = client.create_tweet("test")
+            assert isinstance(result, TweetResult)
+            assert result.tweet_id == "789"
+            assert result.url == "https://x.com/bob/status/789"
 
     def test_raises_on_403(self, client: XClient) -> None:
         with (
@@ -91,7 +111,46 @@ class TestCreateTweet:
                 client.create_tweet("rate limited")
 
 
-# --- CLI validation ---
+# --- CLI ---
+
+
+class TestCLIOutput:
+    @patch("x.cli.XClient")
+    @patch("x.cli.is_token_valid", return_value=True)
+    @patch("x.cli.dotenv.load_dotenv")
+    @patch.dict("os.environ", {
+        "CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok",
+    })
+    def test_prints_url_and_thread_hint(
+        self, _load: object, _valid: object, mock_client_cls: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        mock_client = mock_client_cls.return_value
+        mock_client.create_tweet.return_value = TweetResult(
+            tweet_id="42", url="https://x.com/bob/status/42",
+        )
+        main(["Hello!"])
+        out = capsys.readouterr().out
+        assert "https://x.com/bob/status/42" in out
+        assert "--reply-to 42" in out
+
+    @patch("x.cli.XClient")
+    @patch("x.cli.is_token_valid", return_value=True)
+    @patch("x.cli.dotenv.load_dotenv")
+    @patch.dict("os.environ", {
+        "CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok",
+    })
+    def test_passes_reply_to(
+        self, _load: object, _valid: object, mock_client_cls: MagicMock,
+    ) -> None:
+        mock_client = mock_client_cls.return_value
+        mock_client.create_tweet.return_value = TweetResult(
+            tweet_id="99", url="https://x.com/bob/status/99",
+        )
+        main(["--reply-to", "42", "Reply text"])
+        mock_client.create_tweet.assert_called_once_with(
+            "Reply text", reply_to_tweet_id="42",
+        )
 
 
 class TestCLIValidation:
