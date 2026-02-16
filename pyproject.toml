@@ -2,7 +2,7 @@
 name = "x-post"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["requests", "python-dotenv"]
+dependencies = ["requests", "requests-oauthlib", "python-dotenv"]
 
 [project.scripts]
 x-post = "x.cli:main"

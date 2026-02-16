@@ -7,7 +7,7 @@ import sys
 import dotenv
 
 from x.auth import authenticate, is_token_valid, refresh_access_token
-from x.client import XClient
+from x.client import OAuth1Credentials, XClient
 
 _ENV_PATH = pathlib.Path.cwd() / ".env"
 _MAX_LENGTH = 280
@@ -26,6 +26,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         metavar="TWEET_ID",
         help="Tweet ID to reply to (for threading)",
+    )
+    parser.add_argument(
+        "--image",
+        type=pathlib.Path,
+        metavar="PATH",
+        help="Attach an image (jpg/png/gif/webp, max 5 MB)",
     )
     parser.add_argument(
         "--auth",
@@ -108,8 +114,41 @@ def main(argv: list[str] | None = None) -> None:
         force=args.auth,
     )
 
-    client = XClient(access_token)
-    result = client.create_tweet(text, reply_to_tweet_id=args.reply_to)
+    oauth1: OAuth1Credentials | None = None
+    if args.image:
+        _OAUTH1_VARS = ("API_KEY", "API_KEY_SECRET", "OAUTH1_ACCESS_TOKEN", "OAUTH1_ACCESS_TOKEN_SECRET")
+        missing = [v for v in _OAUTH1_VARS if not os.getenv(v)]
+        if missing:
+            print(
+                f"OAuth 1.0a credentials required for --image. "
+                f"Missing env vars: {', '.join(missing)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        oauth1 = OAuth1Credentials(
+            api_key=os.environ["API_KEY"],
+            api_key_secret=os.environ["API_KEY_SECRET"],
+            access_token=os.environ["OAUTH1_ACCESS_TOKEN"],
+            access_token_secret=os.environ["OAUTH1_ACCESS_TOKEN_SECRET"],
+        )
+
+    client = XClient(access_token, oauth1=oauth1)
+
+    media_ids: list[str] | None = None
+    if args.image:
+        if not args.image.exists():
+            print(f"Image not found: {args.image}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            media_id = client.upload_media(args.image)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        media_ids = [media_id]
+
+    result = client.create_tweet(
+        text, reply_to_tweet_id=args.reply_to, media_ids=media_ids,
+    )
     print(f"Tweet published!\n{result.url}")
     print(f"\nTo continue this thread:\n"
           f"uv run x-post --reply-to {result.tweet_id} \"Next tweet text\"")
