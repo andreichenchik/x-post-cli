@@ -1,6 +1,16 @@
-# x-post
+# x-post-cli
 
 CLI utility for publishing tweets to Twitter/X via the official API.
+
+## Install
+
+```bash
+# Run directly (no install needed)
+uvx x-post-cli@latest "Hello world!"
+
+# Or install globally
+uv tool install x-post-cli
+```
 
 ## Prerequisites
 
@@ -8,33 +18,34 @@ CLI utility for publishing tweets to Twitter/X via the official API.
 2. In **User authentication settings** → Enable OAuth 2.0
 3. Type of App: **Native App** (public client, PKCE)
 4. Callback URL: `http://localhost:8000/callback`
-5. Scopes: `tweet.write`, `tweet.read`, `users.read`, `offline.access`
-6. Copy `Client ID` and `Client Secret`
-
-## Setup
-
-```bash
-cp .env.example .env
-# Fill in CLIENT_ID and CLIENT_SECRET
-```
+5. Copy `Client ID` and `Client Secret`
 
 ## Usage
 
 ```bash
-# Inline text
-uv run x-post "My first tweet via API!"
+# First run — you'll be prompted for Client ID and Client Secret
+x-post-cli "My first tweet via API!"
 
 # From file
-uv run x-post --from-file draft.txt
+x-post-cli --from-file draft.txt
 
 # Interactive input (Ctrl+D to send)
-uv run x-post
+x-post-cli
 
-# Force re-authorization
-uv run x-post --auth
+# With an image (prompts for OAuth 1.0a keys on first use)
+x-post-cli --image photo.jpg "Check this out!"
+
+# Reply to a tweet (threading)
+x-post-cli --reply-to 123456789 "Replying!"
+
+# Re-authorize (clears OAuth 2.0 tokens)
+x-post-cli --reset-auth "Hello again"
+
+# Clear all credentials and start fresh
+x-post-cli --reset-keys "Starting over"
 ```
 
-On first run, a browser window will open for OAuth authorization. Tokens are saved to `.env` automatically and refreshed when expired.
+Credentials are requested interactively on first run and saved to `~/.config/x-post-cli/config.json`. On subsequent runs no prompts are needed. The config file can also be edited manually.
 
 ## Tests
 

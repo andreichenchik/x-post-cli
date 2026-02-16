@@ -5,8 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from x.cli import main
-from x.client import OAuth1Credentials, TweetResult, XClient
+from x_post.cli import main
+from x_post.client import OAuth1Credentials, TweetResult, XClient
+
+from helpers import DictConfigStore
 
 _FAKE_OAUTH1 = OAuth1Credentials(
     api_key="k", api_key_secret="ks", access_token="at", access_token_secret="ats",
@@ -21,6 +23,15 @@ def client() -> XClient:
 @pytest.fixture
 def oauth1_client() -> XClient:
     return XClient(access_token="fake-token", oauth1=_FAKE_OAUTH1)
+
+
+def _base_config() -> DictConfigStore:
+    """Config with client_id, client_secret, and access_token pre-filled."""
+    return DictConfigStore({
+        "client_id": "cid",
+        "client_secret": "sec",
+        "access_token": "tok",
+    })
 
 
 # --- XClient.get_username ---
@@ -130,7 +141,7 @@ class TestUploadMedia:
     ) -> None:
         img = tmp_path / "photo.jpg"
         img.write_bytes(b"\xff\xd8" + b"\x00" * 100)
-        with patch("x.client.requests.post") as mock_post:
+        with patch("x_post.client.requests.post") as mock_post:
             mock_post.return_value = _ok_response({"media_id": 12345})
             result = oauth1_client.upload_media(img)
         assert result == "12345"
@@ -157,7 +168,7 @@ class TestUploadMedia:
     ) -> None:
         img = tmp_path / "pic.png"
         img.write_bytes(b"\x89PNG" + b"\x00" * 100)
-        with patch("x.client.requests.post") as mock_post:
+        with patch("x_post.client.requests.post") as mock_post:
             mock_post.return_value = _error_response(400)
             with pytest.raises(Exception):
                 oauth1_client.upload_media(img)
@@ -194,53 +205,39 @@ class TestCreateTweetWithMedia:
 
 
 class TestCLIOutput:
-    @patch("x.cli.XClient")
-    @patch("x.cli.is_token_valid", return_value=True)
-    @patch("x.cli.dotenv.load_dotenv")
-    @patch.dict("os.environ", {
-        "CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok",
-    })
+    @patch("x_post.cli.XClient")
+    @patch("x_post.cli.is_token_valid", return_value=True)
     def test_prints_url_and_thread_hint(
-        self, _load: object, _valid: object, mock_client_cls: MagicMock,
+        self, _valid: object, mock_client_cls: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         mock_client = mock_client_cls.return_value
         mock_client.create_tweet.return_value = TweetResult(
             tweet_id="42", url="https://x.com/bob/status/42",
         )
-        main(["Hello!"])
+        main(["Hello!"], _config=_base_config())
         out = capsys.readouterr().out
         assert "https://x.com/bob/status/42" in out
         assert "--reply-to 42" in out
 
-    @patch("x.cli.XClient")
-    @patch("x.cli.is_token_valid", return_value=True)
-    @patch("x.cli.dotenv.load_dotenv")
-    @patch.dict("os.environ", {
-        "CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok",
-    })
+    @patch("x_post.cli.XClient")
+    @patch("x_post.cli.is_token_valid", return_value=True)
     def test_passes_reply_to(
-        self, _load: object, _valid: object, mock_client_cls: MagicMock,
+        self, _valid: object, mock_client_cls: MagicMock,
     ) -> None:
         mock_client = mock_client_cls.return_value
         mock_client.create_tweet.return_value = TweetResult(
             tweet_id="99", url="https://x.com/bob/status/99",
         )
-        main(["--reply-to", "42", "Reply text"])
+        main(["--reply-to", "42", "Reply text"], _config=_base_config())
         mock_client.create_tweet.assert_called_once_with(
             "Reply text", reply_to_tweet_id="42", media_ids=None,
         )
 
-    @patch("x.cli.XClient")
-    @patch("x.cli.is_token_valid", return_value=True)
-    @patch("x.cli.dotenv.load_dotenv")
-    @patch.dict("os.environ", {
-        "CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok",
-        "API_KEY": "k", "API_KEY_SECRET": "ks",
-        "OAUTH1_ACCESS_TOKEN": "oat", "OAUTH1_ACCESS_TOKEN_SECRET": "oats",
-    })
+    @patch("x_post.cli.XClient")
+    @patch("x_post.cli.is_token_valid", return_value=True)
     def test_passes_image_media_id(
-        self, _load: object, _valid: object, mock_client_cls: MagicMock,
+        self, _valid: object, mock_client_cls: MagicMock,
         tmp_path: pathlib.Path,
     ) -> None:
         img = tmp_path / "photo.jpg"
@@ -251,7 +248,16 @@ class TestCLIOutput:
         mock_client.create_tweet.return_value = TweetResult(
             tweet_id="55", url="https://x.com/bob/status/55",
         )
-        main(["--image", str(img), "With pic"])
+        config = DictConfigStore({
+            "client_id": "cid",
+            "client_secret": "sec",
+            "access_token": "tok",
+            "api_key": "k",
+            "api_key_secret": "ks",
+            "oauth1_access_token": "oat",
+            "oauth1_access_token_secret": "oats",
+        })
+        main(["--image", str(img), "With pic"], _config=config)
         mock_client.upload_media.assert_called_once_with(img)
         mock_client.create_tweet.assert_called_once_with(
             "With pic", reply_to_tweet_id=None, media_ids=["77777"],
@@ -259,26 +265,53 @@ class TestCLIOutput:
 
 
 class TestCLIValidation:
-    @patch("x.cli.is_token_valid", return_value=True)
-    @patch("x.cli.dotenv.load_dotenv")
-    @patch.dict("os.environ", {"CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok"})
+    @patch("x_post.cli.is_token_valid", return_value=True)
     def test_rejects_text_over_280_chars(self, *_: object) -> None:
         long_text = "a" * 281
         with pytest.raises(SystemExit):
-            main([long_text])
+            main([long_text], _config=_base_config())
 
-    @patch("x.cli.dotenv.load_dotenv")
-    @patch.dict("os.environ", {"CLIENT_ID": "cid", "CLIENT_SECRET": "sec", "ACCESS_TOKEN": "tok"})
-    def test_rejects_empty_text(self, *_: object) -> None:
+    def test_rejects_empty_text(self) -> None:
         with pytest.raises(SystemExit), patch("sys.stdin") as mock_stdin:
             mock_stdin.read.return_value = ""
-            main([])
+            main([], _config=_base_config())
 
-    @patch("x.cli.dotenv.load_dotenv")
-    @patch.dict("os.environ", {"CLIENT_ID": "", "CLIENT_SECRET": ""})
-    def test_rejects_missing_credentials(self, *_: object) -> None:
-        with pytest.raises(SystemExit):
-            main(["hello"])
+    def test_rejects_missing_credentials(self) -> None:
+        config = DictConfigStore()
+        with pytest.raises(SystemExit), patch("builtins.input", return_value=""):
+            main(["hello"], _config=config)
+
+    def test_shows_setup_guide_when_credentials_missing(
+        self, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        config = DictConfigStore()
+        with pytest.raises(SystemExit), patch("builtins.input", return_value=""):
+            main(["hello"], _config=config)
+        out = capsys.readouterr().out
+        assert "First-time setup" in out
+        assert "developer.x.com" in out
+
+    @patch("x_post.cli.XClient")
+    @patch("x_post.cli.is_token_valid", return_value=True)
+    def test_shows_oauth1_guide_when_image_keys_missing(
+        self, _valid: object, mock_client_cls: MagicMock,
+        tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        img = tmp_path / "photo.jpg"
+        img.write_bytes(b"\xff\xd8" + b"\x00" * 100)
+        mock_client = mock_client_cls.return_value
+        mock_client.upload_media.return_value = "123"
+        mock_client.create_tweet.return_value = TweetResult(
+            tweet_id="1", url="https://x.com/u/status/1",
+        )
+        config = DictConfigStore({
+            "client_id": "cid", "client_secret": "sec", "access_token": "tok",
+        })
+        with patch("builtins.input", return_value="val"):
+            main(["--image", str(img), "pic"], _config=config)
+        out = capsys.readouterr().out
+        assert "OAuth 1.0a" in out
+        assert "Keys and Tokens" in out
 
 
 # --- helpers ---
