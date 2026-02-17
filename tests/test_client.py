@@ -296,6 +296,12 @@ class TestCLIValidation:
         with pytest.raises(SystemExit):
             main([text], _config=_base_config())
 
+    @patch("x_post.cli.is_token_valid", return_value=True)
+    def test_rejects_weighted_length_over_280_with_trailing_period(self, *_: object) -> None:
+        text = "a" * 256 + " " + "https://example.com."
+        with pytest.raises(SystemExit):
+            main([text], _config=_base_config())
+
     def test_rejects_empty_text(self) -> None:
         with pytest.raises(SystemExit), patch("sys.stdin") as mock_stdin:
             mock_stdin.read.return_value = ""
@@ -350,6 +356,14 @@ class TestTweetLength:
     def test_counts_multiple_urls(self) -> None:
         text = "a https://one.test b https://two.test/path"
         assert count_tweet_length(text) == len("a ") + 23 + len(" b ") + 23
+
+    def test_counts_trailing_period_outside_url(self) -> None:
+        text = "Look https://example.com."
+        assert count_tweet_length(text) == len("Look ") + 23 + 1
+
+    def test_counts_unmatched_closing_paren_outside_url(self) -> None:
+        text = "Look (https://example.com)"
+        assert count_tweet_length(text) == len("Look (") + 23 + 1
 
 
 # --- helpers ---
