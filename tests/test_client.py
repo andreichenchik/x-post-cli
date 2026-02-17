@@ -7,6 +7,7 @@ import pytest
 
 from x_post.cli import main
 from x_post.client import OAuth1Credentials, TweetResult, XClient
+from x_post.text import count_tweet_length
 
 from helpers import DictConfigStore
 
@@ -271,6 +272,36 @@ class TestCLIValidation:
         with pytest.raises(SystemExit):
             main([long_text], _config=_base_config())
 
+    @patch("x_post.cli.XClient")
+    @patch("x_post.cli.is_token_valid", return_value=True)
+    def test_allows_long_raw_text_when_url_is_shortened(
+        self, _valid: object, mock_client_cls: MagicMock,
+    ) -> None:
+        long_url = "https://example.com/" + "a" * 400
+        text = f"prefix {long_url}"
+        mock_client = mock_client_cls.return_value
+        mock_client.create_tweet.return_value = TweetResult(
+            tweet_id="123", url="https://x.com/u/status/123",
+        )
+
+        main([text], _config=_base_config())
+
+        mock_client.create_tweet.assert_called_once_with(
+            text, reply_to_tweet_id=None, media_ids=None,
+        )
+
+    @patch("x_post.cli.is_token_valid", return_value=True)
+    def test_rejects_weighted_length_over_280_with_url(self, *_: object) -> None:
+        text = "a" * 258 + " " + "https://example.com"
+        with pytest.raises(SystemExit):
+            main([text], _config=_base_config())
+
+    @patch("x_post.cli.is_token_valid", return_value=True)
+    def test_rejects_weighted_length_over_280_with_trailing_period(self, *_: object) -> None:
+        text = "a" * 256 + " " + "https://example.com."
+        with pytest.raises(SystemExit):
+            main([text], _config=_base_config())
+
     def test_rejects_empty_text(self) -> None:
         with pytest.raises(SystemExit), patch("sys.stdin") as mock_stdin:
             mock_stdin.read.return_value = ""
@@ -312,6 +343,27 @@ class TestCLIValidation:
         out = capsys.readouterr().out
         assert "OAuth 1.0a" in out
         assert "Keys and Tokens" in out
+
+
+class TestTweetLength:
+    def test_counts_plain_text(self) -> None:
+        assert count_tweet_length("Hello!") == 6
+
+    def test_counts_url_as_fixed_length(self) -> None:
+        text = "Look https://example.com/really/long/path?x=1"
+        assert count_tweet_length(text) == len("Look ") + 23
+
+    def test_counts_multiple_urls(self) -> None:
+        text = "a https://one.test b https://two.test/path"
+        assert count_tweet_length(text) == len("a ") + 23 + len(" b ") + 23
+
+    def test_counts_trailing_period_outside_url(self) -> None:
+        text = "Look https://example.com."
+        assert count_tweet_length(text) == len("Look ") + 23 + 1
+
+    def test_counts_unmatched_closing_paren_outside_url(self) -> None:
+        text = "Look (https://example.com)"
+        assert count_tweet_length(text) == len("Look (") + 23 + 1
 
 
 # --- helpers ---

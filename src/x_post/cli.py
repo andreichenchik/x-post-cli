@@ -7,6 +7,7 @@ import sys
 from x_post.auth import authenticate, is_token_valid, refresh_access_token
 from x_post.client import OAuth1Credentials, XClient
 from x_post.config import ConfigStore, JsonConfigStore, prompt_if_missing
+from x_post.text import count_tweet_length
 
 _MAX_LENGTH = 280
 
@@ -144,9 +145,10 @@ def main(argv: list[str] | None = None, *, _config: ConfigStore | None = None) -
     if not text:
         print("Empty tweet text, aborting.", file=sys.stderr)
         sys.exit(1)
-    if len(text) > _MAX_LENGTH:
+    tweet_length = count_tweet_length(text)
+    if tweet_length > _MAX_LENGTH:
         print(
-            f"Tweet too long: {len(text)}/{_MAX_LENGTH} characters.",
+            f"Tweet too long: {tweet_length}/{_MAX_LENGTH} characters.",
             file=sys.stderr,
         )
         sys.exit(1)
